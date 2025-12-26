@@ -51,10 +51,6 @@ python -m hospital_system.seed
 ```
 或在虚拟环境中：
 
-```
-HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db 
-                                                                                            POETRY_ACTIVE=1 poetry run python -m hospital_system.seed
-```
 Seed 会创建科室/医生/患者，并按 30 分钟间隔生成示例挂号，避免唯一约束冲突。
 
 ## 运行 Streamlit 前端
