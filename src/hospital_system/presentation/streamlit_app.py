@@ -349,8 +349,7 @@ def render_registration(service: HospitalService) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="医院门诊挂号系统", page_icon="🏥", layout="wide")
-    st.title("医院门诊挂号系统 (示例)")
-    st.caption("演示逻辑层与表示层分离：Streamlit 仅负责展示与输入，业务逻辑在 services 中。")
+    st.title("医院门诊挂号系统")
 
     try:
         with session_scope() as session:
