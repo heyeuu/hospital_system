@@ -1,7 +1,14 @@
 """医院门诊挂号系统包。"""
 
 from .db import Base, engine, session_scope
-from .exceptions import DatabaseConnectionError, ResourceNotFoundError, ValidationError
+from .exceptions import (
+    DatabaseConnectionError,
+    ResourceNotFoundError,
+    TimeSlotOccupiedError,
+    ValidationError,
+    DoctorBusyError,
+    PatientBusyError,
+)
 from .models import Department, Doctor, Patient, Registration
 from .services import HospitalService
 
@@ -17,6 +24,9 @@ __all__ = [
     "DatabaseConnectionError",
     "ResourceNotFoundError",
     "ValidationError",
+    "TimeSlotOccupiedError",
+    "DoctorBusyError",
+    "PatientBusyError",
 ]
 
 

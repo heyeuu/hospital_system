@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -61,6 +61,10 @@ class Patient(Base):
 
 class Registration(Base):
     __tablename__ = "registrations"
+    __table_args__ = (
+        UniqueConstraint("doctor_id", "visit_time", name="uq_doctor_visit_time"),
+        UniqueConstraint("patient_id", "visit_time", name="uq_patient_visit_time"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), nullable=False)

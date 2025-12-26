@@ -79,11 +79,11 @@ def seed() -> None:
         doctors = service.list_doctors()
         patients = service.list_patients()
         if doctors and patients:
-            now = datetime.now()
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
             for idx, patient in enumerate(patients[:3]):
                 doctor = doctors[idx % len(doctors)]
                 department_id = doctor.department_id
-                visit_time = now + timedelta(days=idx + 1, hours=9)
+                visit_time = now + timedelta(days=idx + 1, minutes=30 * idx)
                 service.create_registration(
                     patient_id=patient.id,
                     doctor_id=doctor.id,

@@ -7,7 +7,33 @@ import plotly.express as px
 import streamlit as st
 
 from hospital_system.db import Base, engine, session_scope
-from hospital_system.exceptions import DatabaseConnectionError, ResourceNotFoundError, ValidationError
+
+try:
+    from hospital_system.exceptions import (
+        DatabaseConnectionError,
+        ResourceNotFoundError,
+        TimeSlotOccupiedError,
+        ValidationError,
+        DoctorBusyError,
+        PatientBusyError,
+    )
+except ImportError:
+    # Fallback for environments where the new exception is not yet available
+    from hospital_system.exceptions import (  # type: ignore
+        DatabaseConnectionError,
+        ResourceNotFoundError,
+        ValidationError,
+    )
+
+    class TimeSlotOccupiedError(Exception):  # type: ignore
+        """Fallback placeholder if import fails."""
+
+    class DoctorBusyError(Exception):  # type: ignore
+        """Fallback placeholder if import fails."""
+
+    class PatientBusyError(Exception):  # type: ignore
+        """Fallback placeholder if import fails."""
+
 from hospital_system.services import HospitalService
 
 
@@ -126,9 +152,15 @@ def complete_registration_safe(service: HospitalService, registration_id: int) -
         try:
             reg = service.registrations.get(registration_id)
             reg.status = "completed"
-            service.registrations.session.commit()
+            try:
+                service.registrations.session.commit()
+            except Exception:
+                service.registrations.session.rollback()
+                raise
         except Exception as exc:  # noqa: BLE001
             raise exc
+    except ValidationError as exc:
+        raise exc
 
 
 def delete_registration_safe(service: HospitalService, registration_id: int) -> None:
@@ -140,9 +172,15 @@ def delete_registration_safe(service: HospitalService, registration_id: int) -> 
         try:
             reg = service.registrations.get(registration_id)
             service.registrations.session.delete(reg)
-            service.registrations.session.commit()
+            try:
+                service.registrations.session.commit()
+            except Exception:
+                service.registrations.session.rollback()
+                raise
         except Exception as exc:  # noqa: BLE001
             raise exc
+    except ValidationError as exc:
+        raise exc
 
 
 def render_create_entities(service: HospitalService) -> None:
@@ -247,6 +285,10 @@ def render_registration(service: HospitalService) -> None:
                 st.success(f"挂号成功，单号 #{registration.id}")
             except (ValidationError, ResourceNotFoundError) as exc:
                 st.warning(str(exc))
+            except (TimeSlotOccupiedError, DoctorBusyError):
+                st.error("抱歉，该医生的该时段已被占用，请刷新后选择其他时段")
+            except PatientBusyError:
+                st.error("抱歉，该患者在该时段已有预约，请刷新后选择其他时段")
             except Exception as exc:  # noqa: BLE001
                 st.error(f"挂号失败: {exc}")
 
@@ -290,6 +332,8 @@ def render_registration(service: HospitalService) -> None:
                 try:
                     complete_registration_safe(service, registration.id)
                     st.rerun()
+                except ValidationError as exc:
+                    col_action_complete.error(str(exc))
                 except Exception as exc:  # noqa: BLE001
                     col_action_complete.error(f"更新失败: {exc}")
 
@@ -297,6 +341,8 @@ def render_registration(service: HospitalService) -> None:
             try:
                 delete_registration_safe(service, registration.id)
                 st.rerun()
+            except ValidationError as exc:
+                col_action_delete.error(str(exc))
             except Exception as exc:  # noqa: BLE001
                 col_action_delete.error(f"删除失败: {exc}")
 

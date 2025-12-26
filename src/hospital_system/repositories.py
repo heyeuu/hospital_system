@@ -1,6 +1,6 @@
 """Data access layer built on SQLAlchemy sessions."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Sequence
 
 from sqlalchemy import func, select
@@ -134,6 +134,26 @@ class RegistrationRepository:
         if registration is None:
             raise ResourceNotFoundError(f"Registration {registration_id} not found.")
         return registration
+
+    def exists_conflict(self, doctor_id: int, visit_time: datetime) -> bool:
+        """Check if a doctor already has a registration at the same minute and not cancelled."""
+        time_key = visit_time.strftime("%Y-%m-%d %H:%M")
+        stmt = select(func.count()).where(
+            models.Registration.doctor_id == doctor_id,
+            func.strftime("%Y-%m-%d %H:%M", models.Registration.visit_time) == time_key,
+            models.Registration.status != "已取消",
+        )
+        return bool(self.session.execute(stmt).scalar_one())
+
+    def exists_patient_conflict(self, patient_id: int, visit_time: datetime) -> bool:
+        """Check if a patient already has a registration at the same minute and not cancelled."""
+        time_key = visit_time.strftime("%Y-%m-%d %H:%M")
+        stmt = select(func.count()).where(
+            models.Registration.patient_id == patient_id,
+            func.strftime("%Y-%m-%d %H:%M", models.Registration.visit_time) == time_key,
+            models.Registration.status != "已取消",
+        )
+        return bool(self.session.execute(stmt).scalar_one())
 
     def list(
         self,
