@@ -41,6 +41,7 @@ poetry install
 mkdir -p ./data
 export HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db  # 请替换为你的绝对路径
 ```
+
 - 未设置 `HOSPITAL_DB_URL` 时，默认使用 `<当前工作目录>/data/hospital.db`，若不可写则自动切到 `~/.hospital_system/hospital.db` 并给出警告。
 
 ## 初始化演示数据
@@ -48,12 +49,23 @@ export HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/ho
 export HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db  # 可选
 python -m hospital_system.seed
 ```
+或在虚拟环境中：
+
+```
+HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db 
+                                                                                            POETRY_ACTIVE=1 poetry run python -m hospital_system.seed
+```
 Seed 会创建科室/医生/患者，并按 30 分钟间隔生成示例挂号，避免唯一约束冲突。
 
 ## 运行 Streamlit 前端
 ```bash
 export HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db  # 确保可写
 streamlit run src/hospital_system/presentation/streamlit_app.py
+```
+或在虚拟环境中：
+```
+HOSPITAL_DB_URL=sqlite:////home/heyeuuu/Workspace/hospital_system/data/hospital.db 
+                                                                     poetry run streamlit run src/hospital_system/presentation/streamlit_app.py
 ```
 打开浏览器中提示的本地地址即可使用。
 
