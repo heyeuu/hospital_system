@@ -2,6 +2,8 @@
 
 from datetime import datetime, time
 
+import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from hospital_system.db import Base, engine, session_scope
@@ -10,6 +12,66 @@ from hospital_system.services import HospitalService
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def render_dashboard(service: HospitalService) -> None:
+    st.subheader("全院概览 (Dashboard)")
+
+    registrations = service.list_registrations()
+    total_reg = len(registrations)
+
+    visited_statuses = {"completed", "done", "finished", "已就诊", "已完成"}
+    visited_statuses_lower = {s.lower() for s in visited_statuses}
+    visited = sum(
+        1
+        for reg in registrations
+        if (reg.status or "").lower() in visited_statuses_lower or reg.status in visited_statuses
+    )
+    waiting = total_reg - visited
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("总挂号单数", total_reg)
+    col2.metric("已就诊人数", visited)
+    col3.metric("待就诊人数", waiting)
+
+    if registrations:
+        df = pd.DataFrame(
+            [{"department": reg.department.name, "status": reg.status} for reg in registrations]
+        )
+        dept_counts = df.groupby("department").size().reset_index(name="挂号数")
+        dept_counts = dept_counts.sort_values("挂号数", ascending=False)
+        fig = px.bar(
+            dept_counts,
+            x="department",
+            y="挂号数",
+            text="挂号数",
+            color_discrete_sequence=["#2a7de1"],  # medical-themed blue
+        )
+        fig.update_traces(
+            width=0.4,  # control bar thickness
+            hovertemplate="%{x}<br>挂号数: %{y}<extra></extra>",
+            textposition="outside",
+            textfont=dict(color="#0f1a2b", size=14),
+        )
+        fig.update_layout(
+            xaxis_title="科室",
+            yaxis_title="挂号数",
+            xaxis=dict(tickangle=0, showgrid=False, tickfont=dict(color="#0f1a2b", size=12)),
+            yaxis=dict(
+                showgrid=False,
+                tickfont=dict(color="#0f1a2b", size=12),
+                tick0=0,
+                dtick=1,
+                rangemode="tozero",
+            ),
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            font=dict(color="#0f1a2b", size=14),
+            margin=dict(t=40, b=40, l=10, r=10),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("暂无挂号数据。")
 
 
 def render_create_entities(service: HospitalService) -> None:
@@ -133,6 +195,8 @@ def main() -> None:
     try:
         with session_scope() as session:
             service = HospitalService(session)
+            render_dashboard(service)
+            st.divider()
             render_create_entities(service)
             st.divider()
             render_registration(service)

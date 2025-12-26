@@ -10,7 +10,8 @@ requires-python = ">=3.13"
 dependencies = [
     "streamlit (>=1.52.2,<2.0.0)",
     "pandas (>=2.3.3,<3.0.0)",
-    "sqlalchemy (>=2.0.45,<3.0.0)"
+    "sqlalchemy (>=2.0.45,<3.0.0)",
+    "plotly (>=6.5.0,<7.0.0)"
 ]
 
 [tool.poetry]
