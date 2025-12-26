@@ -11,3 +11,25 @@ class ResourceNotFoundError(Exception):
 
 class ValidationError(Exception):
     """Raised when incoming data fails domain or business validation."""
+
+
+class TimeSlotOccupiedError(Exception):
+    """Raised when a doctor already has an appointment at the requested time."""
+
+
+class DoctorBusyError(Exception):
+    """Raised when a doctor is busy within the protected interval."""
+
+
+class PatientBusyError(Exception):
+    """Raised when a patient already has an appointment in the protected interval."""
+
+
+__all__ = [
+    "DatabaseConnectionError",
+    "ResourceNotFoundError",
+    "ValidationError",
+    "TimeSlotOccupiedError",
+    "DoctorBusyError",
+    "PatientBusyError",
+]

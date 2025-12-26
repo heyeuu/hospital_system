@@ -1,11 +1,13 @@
 """Business logic layer for the hospital system."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Sequence
 
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .exceptions import ValidationError
+from .exceptions import DoctorBusyError, PatientBusyError, TimeSlotOccupiedError, ValidationError
 from .models import Department, Doctor, Patient, Registration
 from .repositories import (
     DepartmentRepository,
@@ -72,13 +74,56 @@ class HospitalService:
         symptoms: str | None = None,
     ) -> Registration:
         patient = self.patients.get(patient_id)
-        doctor = self.doctors.get(doctor_id)
+        # Pessimistic locks to prevent race conditions for the doctor and patient slots
+        doctor_stmt = select(Doctor).where(Doctor.id == doctor_id).with_for_update()
+        doctor = self.registrations.session.execute(doctor_stmt).scalar_one()
+        patient_stmt = select(Patient).where(Patient.id == patient_id).with_for_update()
+        self.registrations.session.execute(patient_stmt).scalar_one()
         department = self.departments.get(department_id)
 
         if doctor.department_id != department.id:
             raise ValidationError("Doctor must belong to the selected department.")
         if visit_time < datetime.now():
             raise ValidationError("Visit time cannot be in the past.")
+
+        # Check 15-minute interval conflicts
+        window_start = visit_time - timedelta(minutes=14, seconds=59)
+        window_end = visit_time + timedelta(minutes=14, seconds=59)
+        conflict_stmt = (
+            select(Registration)
+            .where(
+                Registration.doctor_id == doctor.id,
+                Registration.status != "已取消",
+                Registration.visit_time >= window_start,
+                Registration.visit_time <= window_end,
+            )
+            .with_for_update()
+        )
+        conflict = self.registrations.session.execute(conflict_stmt).scalar_one_or_none()
+        if conflict:
+            raise DoctorBusyError("该医生在该时间段已有预约，请刷新后选择其他时段")
+
+        patient_conflict_stmt = (
+            select(Registration)
+            .where(
+                Registration.patient_id == patient.id,
+                Registration.status != "已取消",
+                Registration.visit_time >= window_start,
+                Registration.visit_time <= window_end,
+            )
+            .with_for_update()
+        )
+        patient_conflict = (
+            self.registrations.session.execute(patient_conflict_stmt).scalar_one_or_none()
+        )
+        if patient_conflict:
+            raise PatientBusyError("该患者在该时间段已有预约，请刷新后选择其他时段")
+
+        # Exact minute checks as final guard
+        if self.registrations.exists_conflict(doctor_id=doctor.id, visit_time=visit_time):
+            raise DoctorBusyError("该医生在该时间段已有预约，请刷新后选择其他时段")
+        if self.registrations.exists_patient_conflict(patient_id=patient.id, visit_time=visit_time):
+            raise PatientBusyError("该患者在该时间段已有预约，请刷新后选择其他时段")
 
         return self.registrations.create(
             patient_id=patient.id,
@@ -112,14 +157,27 @@ class HospitalService:
     def complete_registration(self, registration_id: int) -> Registration:
         """Mark a registration as completed."""
         registration = self.registrations.get(registration_id)
-        registration.status = "completed"
-        # Ensure persistence immediately for UI refresh scenarios.
-        self.registrations.session.flush()
-        self.registrations.session.commit()
+        try:
+            registration.status = "completed"
+            self.registrations.session.flush()
+            self.registrations.session.commit()
+        except OperationalError as exc:
+            self.registrations.session.rollback()
+            raise ValidationError("数据库为只读，无法更新挂号状态。") from exc
+        except Exception:
+            self.registrations.session.rollback()
+            raise
         return registration
 
     def delete_registration(self, registration_id: int) -> None:
         """Delete a registration record."""
         registration = self.registrations.get(registration_id)
-        self.registrations.session.delete(registration)
-        self.registrations.session.commit()
+        try:
+            self.registrations.session.delete(registration)
+            self.registrations.session.commit()
+        except OperationalError as exc:
+            self.registrations.session.rollback()
+            raise ValidationError("数据库为只读，无法删除挂号记录。") from exc
+        except Exception:
+            self.registrations.session.rollback()
+            raise
