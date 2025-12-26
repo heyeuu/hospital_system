@@ -93,6 +93,7 @@ class HospitalService:
         """List registrations with optional filters; tolerant to positional/keyword usage."""
         department_id = kwargs.pop("department_id", None)
         visit_date = kwargs.pop("visit_date", None)
+        status = kwargs.pop("status", None)
 
         # Fallback to positional overrides for backward compatibility
         if args:
@@ -101,7 +102,24 @@ class HospitalService:
             if len(args) >= 2 and visit_date is None:
                 visit_date = args[1]
 
-        return self.registrations.list(department_id=department_id, visit_date=visit_date)
+        return self.registrations.list(
+            department_id=department_id, visit_date=visit_date, status=status
+        )
 
     def get_registration(self, registration_id: int) -> Registration:
         return self.registrations.get(registration_id)
+
+    def complete_registration(self, registration_id: int) -> Registration:
+        """Mark a registration as completed."""
+        registration = self.registrations.get(registration_id)
+        registration.status = "completed"
+        # Ensure persistence immediately for UI refresh scenarios.
+        self.registrations.session.flush()
+        self.registrations.session.commit()
+        return registration
+
+    def delete_registration(self, registration_id: int) -> None:
+        """Delete a registration record."""
+        registration = self.registrations.get(registration_id)
+        self.registrations.session.delete(registration)
+        self.registrations.session.commit()

@@ -139,6 +139,7 @@ class RegistrationRepository:
         self,
         department_id: int | None = None,
         visit_date: date | None = None,
+        status: str | None = None,
         **_unused,
     ) -> Sequence[models.Registration]:
         stmt = select(models.Registration)
@@ -146,6 +147,8 @@ class RegistrationRepository:
             stmt = stmt.where(models.Registration.department_id == department_id)
         if visit_date is not None:
             stmt = stmt.where(func.date(models.Registration.visit_time) == visit_date)
+        if status:
+            stmt = stmt.where(models.Registration.status == status)
         return self.session.scalars(stmt).all()
 
     def list_by_patient(self, patient_id: int) -> Sequence[models.Registration]:

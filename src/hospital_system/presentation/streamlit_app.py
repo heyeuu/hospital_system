@@ -40,51 +40,60 @@ def render_dashboard(service: HospitalService) -> None:
         )
         dept_counts = df.groupby("department").size().reset_index(name="挂号数")
         dept_counts = dept_counts.sort_values("挂号数", ascending=False)
-        fig = px.bar(
-            dept_counts,
-            x="department",
-            y="挂号数",
-            text="挂号数",
-            color_discrete_sequence=["#2a7de1"],  # medical-themed blue
-        )
-        fig.update_traces(
-            width=0.4,  # control bar thickness
-            hovertemplate="%{x}<br>挂号数: %{y}<extra></extra>",
-            textposition="outside",
-            textfont=dict(color="#0f1a2b", size=14),
-        )
-        fig.update_layout(
-            xaxis_title="科室",
-            yaxis_title="挂号数",
-            xaxis=dict(tickangle=0, showgrid=False, tickfont=dict(color="#0f1a2b", size=12)),
-            yaxis=dict(
-                showgrid=False,
-                tickfont=dict(color="#0f1a2b", size=12),
-                tick0=0,
-                dtick=1,
-                rangemode="tozero",
-            ),
-            plot_bgcolor="white",
-            paper_bgcolor="white",
-            font=dict(color="#0f1a2b", size=14),
-            margin=dict(t=40, b=40, l=10, r=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        left_space, chart_bridge, right_space = st.columns([1, 2, 1])
+        with chart_bridge:
+            fig = px.bar(
+                dept_counts,
+                x="department",
+                y="挂号数",
+                text="挂号数",
+                color_discrete_sequence=["#2a7de1"],  # medical blue
+            )
+            fig.update_traces(
+                width=0.35,
+                hovertemplate="%{x}<br>挂号数: %{y}<extra></extra>",
+                textposition="outside",
+                marker_line_color="#1f4f8f",
+                marker_line_width=0.6,
+            )
+            fig.update_layout(
+                xaxis_title="科室",
+                yaxis_title="挂号数",
+                xaxis=dict(tickangle=0, showgrid=False, tickfont=dict(color="#0f1a2b", size=12)),
+                yaxis=dict(
+                    showgrid=False,
+                    tickfont=dict(color="#0f1a2b", size=12),
+                    tick0=0,
+                    dtick=1,
+                    rangemode="tozero",
+                ),
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font=dict(color="#0f1a2b", size=14),
+                margin=dict(t=40, b=40, l=10, r=10),
+                bargap=0.5,
+                width=720,  # fixed figure width to avoid overly wide bars when few departments
+            )
+            st.plotly_chart(fig, use_container_width=False, height=350)
     else:
         st.info("暂无挂号数据。")
 
 
 def get_registrations(
-    service: HospitalService, department_id=None, visit_date=None
+    service: HospitalService, department_id=None, visit_date=None, status=None
 ):
     """Fetch registrations with graceful fallback for different service signatures."""
     regs = []
     try:
-        regs = service.list_registrations(department_id=department_id, visit_date=visit_date)
+        regs = service.list_registrations(
+            department_id=department_id, visit_date=visit_date, status=status
+        )
     except TypeError:
         # Fallback for older Service signature; call repository directly
         try:
-            regs = service.registrations.list(department_id=department_id, visit_date=visit_date)
+            regs = service.registrations.list(
+                department_id=department_id, visit_date=visit_date, status=status
+            )
         except TypeError:
             regs = service.registrations.list()
 
@@ -95,8 +104,45 @@ def get_registrations(
             continue
         if visit_date is not None and reg.visit_time.date() != visit_date:
             continue
+        normalized_status = (reg.status or "").strip()
+        if normalized_status == "":
+            normalized_status = None
+        if status is not None:
+            if status == "__NONE__" and normalized_status is not None:
+                continue
+            if status != "__NONE__" and normalized_status != status:
+                continue
         filtered.append(reg)
     return filtered
+
+
+def complete_registration_safe(service: HospitalService, registration_id: int) -> None:
+    """Complete a registration even if the service interface changes."""
+    try:
+        service.complete_registration(registration_id)
+        return
+    except AttributeError:
+        # Fall back to direct repository update
+        try:
+            reg = service.registrations.get(registration_id)
+            reg.status = "completed"
+            service.registrations.session.commit()
+        except Exception as exc:  # noqa: BLE001
+            raise exc
+
+
+def delete_registration_safe(service: HospitalService, registration_id: int) -> None:
+    """Delete a registration even if the service interface changes."""
+    try:
+        service.delete_registration(registration_id)
+        return
+    except AttributeError:
+        try:
+            reg = service.registrations.get(registration_id)
+            service.registrations.session.delete(reg)
+            service.registrations.session.commit()
+        except Exception as exc:  # noqa: BLE001
+            raise exc
 
 
 def render_create_entities(service: HospitalService) -> None:
@@ -169,6 +215,7 @@ def render_registration(service: HospitalService) -> None:
     patients = service.list_patients()
     doctors = service.list_doctors()
     departments = service.list_departments()
+    all_registrations = get_registrations(service)
 
     if not patients or not doctors or not departments:
         st.info("请先完成患者、医生、科室的基础信息录入。")
@@ -207,26 +254,51 @@ def render_registration(service: HospitalService) -> None:
     dept_filter_options = {"全部": None}
     dept_filter_options.update({dept.name: dept.id for dept in departments})
 
-    filter_col1, filter_col2 = st.columns([1, 1])
+    filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 1])
     with filter_col1:
         selected_dept_key = st.selectbox("按科室筛选", list(dept_filter_options.keys()))
         selected_dept_id = dept_filter_options[selected_dept_key]
     with filter_col2:
-        use_date_filter = st.checkbox("按就诊日期筛选")
-        selected_visit_date = None
-        if use_date_filter:
-            selected_visit_date = st.date_input("就诊日期", value=date.today())
+        date_values = sorted({reg.visit_time.date() for reg in all_registrations})
+        date_options = {"全部": None}
+        date_options.update({str(d): d for d in date_values})
+        selected_date_label = st.selectbox("按就诊日期筛选", list(date_options.keys()))
+        selected_visit_date = date_options[selected_date_label]
+    with filter_col3:
+        status_values = { (reg.status or "未指定").strip() or "未指定" for reg in all_registrations }
+        status_options = {"全部": None}
+        status_options.update({label: ("__NONE__" if label == "未指定" else label) for label in sorted(status_values)})
+        selected_status_key = st.selectbox("按状态筛选", list(status_options.keys()))
+        selected_status_value = status_options[selected_status_key]
 
     filtered_registrations = get_registrations(
-        service, department_id=selected_dept_id, visit_date=selected_visit_date
+        service,
+        department_id=selected_dept_id,
+        visit_date=selected_visit_date,
+        status=selected_status_value,
     )
 
     for registration in filtered_registrations:
-        st.write(
+        col_info, col_action_complete, col_action_delete = st.columns([5, 1, 1])
+        col_info.write(
             f"#{registration.id} | 患者: {registration.patient.name} | "
             f"医生: {registration.doctor.name} | 科室: {registration.department.name} | "
             f"时间: {registration.visit_time} | 状态: {registration.status}"
         )
+        if (registration.status or "").lower() == "scheduled":
+            if col_action_complete.button("确认就诊", key=f"complete_{registration.id}"):
+                try:
+                    complete_registration_safe(service, registration.id)
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    col_action_complete.error(f"更新失败: {exc}")
+
+        if col_action_delete.button("删除记录", key=f"delete_{registration.id}"):
+            try:
+                delete_registration_safe(service, registration.id)
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001
+                col_action_delete.error(f"删除失败: {exc}")
 
 
 def main() -> None:
