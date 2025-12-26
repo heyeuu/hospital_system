@@ -1,6 +1,6 @@
 """Business logic layer for the hospital system."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Sequence
 
 from sqlalchemy.orm import Session
@@ -89,8 +89,19 @@ class HospitalService:
             symptoms=symptoms,
         )
 
-    def list_registrations(self) -> Sequence[Registration]:
-        return self.registrations.list()
+    def list_registrations(self, *args, **kwargs) -> Sequence[Registration]:
+        """List registrations with optional filters; tolerant to positional/keyword usage."""
+        department_id = kwargs.pop("department_id", None)
+        visit_date = kwargs.pop("visit_date", None)
+
+        # Fallback to positional overrides for backward compatibility
+        if args:
+            if len(args) >= 1 and department_id is None:
+                department_id = args[0]
+            if len(args) >= 2 and visit_date is None:
+                visit_date = args[1]
+
+        return self.registrations.list(department_id=department_id, visit_date=visit_date)
 
     def get_registration(self, registration_id: int) -> Registration:
         return self.registrations.get(registration_id)

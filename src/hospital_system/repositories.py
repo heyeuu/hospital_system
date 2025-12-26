@@ -1,8 +1,9 @@
 """Data access layer built on SQLAlchemy sessions."""
 
+from datetime import date
 from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models
@@ -134,8 +135,18 @@ class RegistrationRepository:
             raise ResourceNotFoundError(f"Registration {registration_id} not found.")
         return registration
 
-    def list(self) -> Sequence[models.Registration]:
-        return self.session.scalars(select(models.Registration)).all()
+    def list(
+        self,
+        department_id: int | None = None,
+        visit_date: date | None = None,
+        **_unused,
+    ) -> Sequence[models.Registration]:
+        stmt = select(models.Registration)
+        if department_id is not None:
+            stmt = stmt.where(models.Registration.department_id == department_id)
+        if visit_date is not None:
+            stmt = stmt.where(func.date(models.Registration.visit_time) == visit_date)
+        return self.session.scalars(stmt).all()
 
     def list_by_patient(self, patient_id: int) -> Sequence[models.Registration]:
         return self.session.scalars(

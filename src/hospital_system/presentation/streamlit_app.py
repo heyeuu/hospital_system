@@ -1,6 +1,6 @@
 """Streamlit presentation layer that consumes the business services."""
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 import pandas as pd
 import plotly.express as px
@@ -17,7 +17,7 @@ Base.metadata.create_all(bind=engine)
 def render_dashboard(service: HospitalService) -> None:
     st.subheader("全院概览 (Dashboard)")
 
-    registrations = service.list_registrations()
+    registrations = get_registrations(service)
     total_reg = len(registrations)
 
     visited_statuses = {"completed", "done", "finished", "已就诊", "已完成"}
@@ -72,6 +72,31 @@ def render_dashboard(service: HospitalService) -> None:
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("暂无挂号数据。")
+
+
+def get_registrations(
+    service: HospitalService, department_id=None, visit_date=None
+):
+    """Fetch registrations with graceful fallback for different service signatures."""
+    regs = []
+    try:
+        regs = service.list_registrations(department_id=department_id, visit_date=visit_date)
+    except TypeError:
+        # Fallback for older Service signature; call repository directly
+        try:
+            regs = service.registrations.list(department_id=department_id, visit_date=visit_date)
+        except TypeError:
+            regs = service.registrations.list()
+
+    # Final in-memory filtering to guarantee UI honors filters even if service signature differs.
+    filtered = []
+    for reg in regs:
+        if department_id is not None and reg.department_id != department_id:
+            continue
+        if visit_date is not None and reg.visit_time.date() != visit_date:
+            continue
+        filtered.append(reg)
+    return filtered
 
 
 def render_create_entities(service: HospitalService) -> None:
@@ -179,7 +204,24 @@ def render_registration(service: HospitalService) -> None:
                 st.error(f"挂号失败: {exc}")
 
     st.markdown("#### 当前挂号列表")
-    for registration in service.list_registrations():
+    dept_filter_options = {"全部": None}
+    dept_filter_options.update({dept.name: dept.id for dept in departments})
+
+    filter_col1, filter_col2 = st.columns([1, 1])
+    with filter_col1:
+        selected_dept_key = st.selectbox("按科室筛选", list(dept_filter_options.keys()))
+        selected_dept_id = dept_filter_options[selected_dept_key]
+    with filter_col2:
+        use_date_filter = st.checkbox("按就诊日期筛选")
+        selected_visit_date = None
+        if use_date_filter:
+            selected_visit_date = st.date_input("就诊日期", value=date.today())
+
+    filtered_registrations = get_registrations(
+        service, department_id=selected_dept_id, visit_date=selected_visit_date
+    )
+
+    for registration in filtered_registrations:
         st.write(
             f"#{registration.id} | 患者: {registration.patient.name} | "
             f"医生: {registration.doctor.name} | 科室: {registration.department.name} | "
