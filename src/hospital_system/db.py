@@ -20,6 +20,35 @@ class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
 
+def _load_env_file() -> None:
+    """Load a local .env file without overriding existing environment variables."""
+    env_locations = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[2] / ".env",
+    ]
+    for env_path in env_locations:
+        if not env_path.exists():
+            continue
+        try:
+            lines = env_path.read_text().splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].strip()
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        break
+
+
+_load_env_file()
+
+
 def _resolve_default_db_url() -> str:
     env_url = os.environ.get("HOSPITAL_DB_URL")
     if env_url:
